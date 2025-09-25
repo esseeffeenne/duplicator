@@ -9,3 +9,9 @@ target_link_libraries(duplicator -lc)
 
 set(CMAKE_INSTALL_PREFIX /usr/local)
 install(TARGETS duplicator DESTINATION bin)
+
+if(DEBUG)
+	target_compile_options(duplicator PUBLIC -g PUBLIC -Wall PUBLIC -Wextra PUBLIC -O0)
+else()
+	target_compile_options(duplicator PUBLIC -O2)
+endif()
