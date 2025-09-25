@@ -15,3 +15,4 @@ if(DEBUG)
 else()
 	target_compile_options(duplicator PUBLIC -O2)
 endif()
+
