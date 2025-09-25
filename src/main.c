@@ -101,15 +101,17 @@ int main(int argc, char *argv[]) {
     printf("could not listen to notifications in %s", iresolved_path);
     exit(errno);
   } else {
-    fprintf(stderr, "monitoring source directory %s...\n", iresolved_path);
+    // fprintf(stderr, "monitoring source directory %s...\n", iresolved_path);
   }
 
   int i, j, k, totalread, symlink_status, remove_status;
   char target[PATH_MAX], link_name[PATH_MAX];
   char const *symlink_error_fmt = "could not symlink from %s to %s";
 
-  for (j = 0, k = 0; j < ipathlen && k < opathlen; j++, k++) {
+  for (j = 0; j < ipathlen; j++) {
     target[j] = iresolved_path[j];
+  }
+  for (k = 0; k < opathlen; k++) {
     link_name[k] = oresolved_path[k];
   }
   target[j] = '/', link_name[k] = '/';
@@ -139,7 +141,7 @@ int main(int argc, char *argv[]) {
             perror("could not format target name");
             exit(errno);
           } else {
-            fprintf(stderr, "%s\n%s\n", target, link_name);
+            // fprintf(stderr, "%s\n%s\n", target, link_name);
           }
           if (0 != (symlink_status = symlink(target, link_name))) {
             fprintf(stderr, symlink_error_fmt, target, link_name);
@@ -174,3 +176,4 @@ void usage(void) {
 }
 
 void version(void) { printf("%s %s\n", PROJECT_NAME, PROJECT_VERSION); }
+
