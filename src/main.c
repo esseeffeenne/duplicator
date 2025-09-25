@@ -129,9 +129,9 @@ int main(int argc, char *argv[]) {
       if (event->len && event->name[0]) {
         size_t event_name_len = strlen(event->name);
         if (event->mask & IN_CREATE) {
-          if (!(event->mask & IN_ISDIR)) {
-            continue;
-          }
+          // if (!(event->mask & IN_ISDIR)) {
+          //   continue;
+          // }
           if (PATH_MAX <= opathlen + event_name_len) {
             fprintf(stderr, "link name is too long");
             continue;
