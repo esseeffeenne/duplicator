@@ -7,3 +7,5 @@ add_executable(duplicator src/main.c)
 include_directories(${CMAKE_BINARY_DIR})
 target_link_libraries(duplicator -lc)
 
+set(CMAKE_INSTALL_PREFIX /usr/local)
+install(TARGETS duplicator DESTINATION bin)
