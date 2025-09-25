@@ -97,16 +97,19 @@ int main(int argc, char *argv[]) {
   }
 
   if (-1 == (wd = inotify_add_watch(fd, iresolved_path,
-                                    IN_CREATE | IN_DELETE | IN_MODIFY))) {
+                                    IN_CREATE | IN_DELETE | IN_MOVE))) {
     printf("could not listen to notifications in %s", iresolved_path);
     exit(errno);
   } else {
     // fprintf(stderr, "monitoring source directory %s...\n", iresolved_path);
   }
 
-  int i, j, k, totalread, symlink_status, remove_status;
-  char target[PATH_MAX], link_name[PATH_MAX];
-  char const *symlink_error_fmt = "could not symlink from %s to %s";
+	int totalread, symlink_status, remove_status, move_status;
+  size_t i, j, k;
+  char target[PATH_MAX], link_name[PATH_MAX], old_link_name[PATH_MAX];
+  const char *symlink_error_fmt = "could not symlink from %s to %s\n";
+  const char *remove_error_fmt = "could not remove symlink %s\n";
+  const char *move_error_fmt = "could not move symlink %s to %s\n";
 
   for (j = 0; j < ipathlen; j++) {
     target[j] = iresolved_path[j];
@@ -123,15 +126,13 @@ int main(int argc, char *argv[]) {
     }
 
     i = 0;
-    while (i < totalread) {
+    while (i < (unsigned long)totalread) {
       inotify_event *event = (inotify_event *)&buffer[i];
 
       if (event->len && event->name[0]) {
         size_t event_name_len = strlen(event->name);
-        if (event->mask & IN_CREATE) {
-          // if (!(event->mask & IN_ISDIR)) {
-          //   continue;
-          // }
+        // TODO: Handle a filename being changed (delete -> create)
+        if (event->mask & (IN_CREATE | IN_DELETE | IN_MOVE)) {
           if (PATH_MAX <= opathlen + event_name_len) {
             fprintf(stderr, "link name is too long");
             continue;
@@ -140,22 +141,39 @@ int main(int argc, char *argv[]) {
               NULL == (strcat(link_name, event->name))) {
             perror("could not format target name");
             exit(errno);
-          } else {
-            // fprintf(stderr, "%s\n%s\n", target, link_name);
           }
-          if (0 != (symlink_status = symlink(target, link_name))) {
-            fprintf(stderr, symlink_error_fmt, target, link_name);
-            // should be fine
-            // exit(errno);
+          if (event->mask & IN_CREATE) {
+            if (0 != (symlink_status = symlink(target, link_name))) {
+              fprintf(stderr, symlink_error_fmt, target, link_name);
+            }
+          } else if (event->mask & IN_DELETE) {
+            if (0 != (remove_status = unlink(link_name))) {
+              fprintf(stderr, remove_error_fmt, link_name);
+            }
+          } else if (event->mask & IN_MOVE) {
+            if (event->mask & IN_MOVED_FROM) {
+              if (NULL == (strncpy(old_link_name, link_name, PATH_MAX))) {
+                unlink(link_name);
+                exit(errno);
+              }
+							memset((char*)&link_name + opathlen + 1, 0, event_name_len);
+            } else if (event->mask & IN_MOVED_TO) {
+              if (0 != (move_status = rename(old_link_name, link_name))) {
+                fprintf(stderr, move_error_fmt, old_link_name, link_name);
+                if (0 != (remove_status = unlink(old_link_name))) {
+                  fprintf(stderr, remove_error_fmt, old_link_name);
+                  exit(errno);
+                }
+              }
+              memset((void *)old_link_name, 0, sizeof(old_link_name));
+            }
           }
           // clear leftovers
-          for (int j = ipathlen + 1, k = opathlen + 1;
+          for (j = ipathlen + 1, k = opathlen + 1;
                j < strlen(target) || k < strlen(link_name); ++j, ++k) {
             target[j] = '\0', link_name[k] = '\0';
           }
         }
-
-        // TODO: Handle a filename being changed (delete -> create)
       }
       i += MONITOR_EVENT_SIZE + event->len;
     }
