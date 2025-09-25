@@ -73,9 +73,8 @@ int main(int argc, char *argv[]) {
       return -EINVAL;
     case 'h':
       usage();
-    default: {
+    default:
       return 0;
-    }
     }
   }
 
@@ -104,7 +103,7 @@ int main(int argc, char *argv[]) {
     // fprintf(stderr, "monitoring source directory %s...\n", iresolved_path);
   }
 
-	int totalread, symlink_status, remove_status, move_status;
+  int totalread, symlink_status, remove_status, move_status;
   size_t i, j, k;
   char target[PATH_MAX], link_name[PATH_MAX], old_link_name[PATH_MAX];
   const char *symlink_error_fmt = "could not symlink from %s to %s\n";
@@ -129,51 +128,52 @@ int main(int argc, char *argv[]) {
     while (i < (unsigned long)totalread) {
       inotify_event *event = (inotify_event *)&buffer[i];
 
-      if (event->len && event->name[0]) {
-        size_t event_name_len = strlen(event->name);
-        // TODO: Handle a filename being changed (delete -> create)
-        if (event->mask & (IN_CREATE | IN_DELETE | IN_MOVE)) {
-          if (PATH_MAX <= opathlen + event_name_len) {
-            fprintf(stderr, "link name is too long");
-            continue;
-          }
-          if (NULL == (strcat(target, event->name)) ||
-              NULL == (strcat(link_name, event->name))) {
-            perror("could not format target name");
+      if (!event->len && !event->name[0]) {
+        continue;
+      }
+      size_t event_name_len = strlen(event->name);
+
+      if (!(event->mask & (IN_CREATE | IN_DELETE | IN_MOVE))) {
+        continue;
+      }
+
+      if (PATH_MAX <= opathlen + event_name_len) {
+        fprintf(stderr, "link name is too long");
+        continue;
+      }
+
+      if (NULL == (strcat(target, event->name)) ||
+          NULL == (strcat(link_name, event->name))) {
+        perror("could not format target name");
+        exit(errno);
+      }
+
+      if ((event->mask & IN_CREATE) &&
+          (0 != (symlink_status = symlink(target, link_name)))) {
+        fprintf(stderr, symlink_error_fmt, target, link_name);
+      } else if ((event->mask & IN_DELETE) &&
+                 (0 != (remove_status = unlink(link_name)))) {
+        fprintf(stderr, remove_error_fmt, link_name);
+      } else if (event->mask & IN_MOVE) {
+        if ((event->mask & IN_MOVED_FROM) &&
+            (NULL == (strncpy(old_link_name, link_name, PATH_MAX))) &&
+            (NULL == memset((char *)&link_name + opathlen + 1, 0, event_name_len))) {
+          unlink(link_name);
+          exit(errno);
+        } else if ((event->mask & IN_MOVED_TO) &&
+                   (0 != (move_status = rename(old_link_name, link_name))) &&
+                   (NULL == memset((void *)old_link_name, 0, sizeof(old_link_name)))) {
+          fprintf(stderr, move_error_fmt, old_link_name, link_name);
+          if (0 != (remove_status = unlink(old_link_name))) {
+            fprintf(stderr, remove_error_fmt, old_link_name);
             exit(errno);
           }
-          if (event->mask & IN_CREATE) {
-            if (0 != (symlink_status = symlink(target, link_name))) {
-              fprintf(stderr, symlink_error_fmt, target, link_name);
-            }
-          } else if (event->mask & IN_DELETE) {
-            if (0 != (remove_status = unlink(link_name))) {
-              fprintf(stderr, remove_error_fmt, link_name);
-            }
-          } else if (event->mask & IN_MOVE) {
-            if (event->mask & IN_MOVED_FROM) {
-              if (NULL == (strncpy(old_link_name, link_name, PATH_MAX))) {
-                unlink(link_name);
-                exit(errno);
-              }
-							memset((char*)&link_name + opathlen + 1, 0, event_name_len);
-            } else if (event->mask & IN_MOVED_TO) {
-              if (0 != (move_status = rename(old_link_name, link_name))) {
-                fprintf(stderr, move_error_fmt, old_link_name, link_name);
-                if (0 != (remove_status = unlink(old_link_name))) {
-                  fprintf(stderr, remove_error_fmt, old_link_name);
-                  exit(errno);
-                }
-              }
-              memset((void *)old_link_name, 0, sizeof(old_link_name));
-            }
-          }
-          // clear leftovers
-          for (j = ipathlen + 1, k = opathlen + 1;
-               j < strlen(target) || k < strlen(link_name); ++j, ++k) {
-            target[j] = '\0', link_name[k] = '\0';
-          }
         }
+      }
+      // clear leftovers
+      for (j = ipathlen + 1, k = opathlen + 1;
+           j < strlen(target) || k < strlen(link_name); ++j, ++k) {
+        target[j] = '\0', link_name[k] = '\0';
       }
       i += MONITOR_EVENT_SIZE + event->len;
     }
