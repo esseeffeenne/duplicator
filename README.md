@@ -1,7 +1,7 @@
 # duplicator
 Automatically symlinks from source directory to target directory.
 
-The current implementation is a small daemon which listens on a directory and duplicates symlinks over another, zero levels deep.
+The current implementation is a small daemon which listens on a path and symlinks directories over another, zero levels deep.
 
 ## Usage
 ```
