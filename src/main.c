@@ -47,7 +47,7 @@ int main(int argc, char *argv[]) {
         perror("could not resolve path");
         exit(errno);
       } else {
-        memset((void *)ipath, '\0', sizeof(ipath) / sizeof(void));
+        memset((void *)ipath, '\0', sizeof(ipath));
         continue;
       }
     case 't':
@@ -58,7 +58,7 @@ int main(int argc, char *argv[]) {
         perror("could not resolve path");
         exit(errno);
       } else {
-        memset((void *)opath, '\0', sizeof(opath) / sizeof(void));
+        memset((void *)opath, '\0', sizeof(opath));
         continue;
       }
     case 'v': {
