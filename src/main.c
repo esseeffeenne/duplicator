@@ -1,17 +1,28 @@
 #include "config.h"
+#include <assert.h>
 #include <dirent.h>
 #include <errno.h>
 #include <getopt.h>
 #include <limits.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/inotify.h>
 #include <sys/stat.h>
+#include <fcntl.h>
+#include <threads.h>
 #include <unistd.h>
 
 typedef struct inotify_event inotify_event;
 typedef struct option option;
+typedef struct stat sstat;
+typedef struct msg_fmt {
+  size_t n_arg;
+  char *msg;
+} msg_fmt;
+
+typedef enum mask_type { create = 0, delete, move, n_masks } mask_type;
 
 #define PATH_MAX 4096
 #define MAX_EVENT_MONITOR 2048
@@ -19,25 +30,44 @@ typedef struct option option;
 #define MONITOR_EVENT_SIZE (sizeof(inotify_event))
 #define BUFFER_LEN MAX_EVENT_MONITOR *(MONITOR_EVENT_SIZE + NAME_LEN)
 
+static int log_level = 0;
+static const option opts[] = {{"listen", required_argument, 0, 'l'},
+                              {"target", required_argument, 0, 't'},
+                              {"help", no_argument, 0, 'h'},
+                              {"version", no_argument, 0, 'v'},
+                              {"verbose", no_argument, 0, 'V'},
+                              // {"logfile", required_argument, 0, 'L'},
+                              {0, 0, 0, 0}};
+static const msg_fmt error_msg_fmt_table[] = {
+    {2, "could not symlink from %s to %s"},
+    {1, "could not remove symlink %s"},
+    {2, "could not move symlink %s to %s"},
+};
+static const msg_fmt success_msg_fmt_table[] = {
+    {2, "symlinked from %s to %s"},
+    {1, "removed symlink %s"},
+    {2, "moved symlink %s to %s"},
+};
+static const msg_fmt generic_msg_fmt = {1, "%s"};
+
+// static const char *log_filepath = "./tmp/duplicator.log";
+FILE *log_fd;
+
 void usage(void);
 void version(void);
-// char *log_filepath = "./duplicator.log";
+int log_withlevel(const msg_fmt *fmt, ...);
 
 int main(int argc, char *argv[]) {
+  assert((int)n_masks == (sizeof(error_msg_fmt_table) /
+                          sizeof(typeof(error_msg_fmt_table[0]))));
 
-  int fd, wd, logd, c;
+  int fd, fstatid, wd, c;
+  sstat st;
   char ipath[PATH_MAX], iresolved_path[PATH_MAX] = {'\0'};
   char opath[PATH_MAX], oresolved_path[PATH_MAX] = {'\0'};
   char buffer[BUFFER_LEN];
 
-  static option opts[] = {{"listen", required_argument, 0, 'l'},
-                          {"target", required_argument, 0, 't'},
-                          {"help", no_argument, 0, 'h'},
-                          {"version", no_argument, 0, 'v'},
-                          // {"logfile", required_argument, 0, 'L'},
-                          {0, 0, 0, 0}};
-
-  while (-1 != (c = getopt_long(argc, argv, "l:t:hv", opts, NULL))) {
+  while (-1 != (c = getopt_long(argc, argv, "l:t:hvV", opts, NULL))) {
     switch (c) {
     case 'l':
       if (NULL == strncpy(ipath, optarg, sizeof(ipath))) {
@@ -69,6 +99,9 @@ int main(int argc, char *argv[]) {
       // log_filepath = optarg; // currently unused
       continue;
     }
+    case 'V':
+      log_level++;
+      continue;
     case '?':
       return -EINVAL;
     case 'h':
@@ -99,16 +132,11 @@ int main(int argc, char *argv[]) {
                                     IN_CREATE | IN_DELETE | IN_MOVE))) {
     printf("could not listen to notifications in %s", iresolved_path);
     exit(errno);
-  } else {
-    // fprintf(stderr, "monitoring source directory %s...\n", iresolved_path);
   }
 
-  int totalread, symlink_status, remove_status, move_status;
+  int totalread, symlink_status, remove_status;
   size_t i, j, k;
   char target[PATH_MAX], link_name[PATH_MAX], old_link_name[PATH_MAX];
-  const char *symlink_error_fmt = "could not symlink from %s to %s\n";
-  const char *remove_error_fmt = "could not remove symlink %s\n";
-  const char *move_error_fmt = "could not move symlink %s to %s\n";
 
   for (j = 0; j < ipathlen; j++) {
     target[j] = iresolved_path[j];
@@ -190,8 +218,45 @@ void usage(void) {
   printf(" Options:\n"
          "  -l, --listen <path>       path to watch over for events\n"
          "  -t, --target <path>       path to symlink to\n"
+         "  -v, --version             prints version and exit\n"
+         "  -V,  --verbose           enable verbose output\n"
          "  -h, --help                prints help and exit\n");
 }
 
 void version(void) { printf("%s %s\n", PROJECT_NAME, PROJECT_VERSION); }
+
+int log_withlevel(const msg_fmt *fmt, ...) {
+  FILE *fd = stderr;
+  switch (log_level) {
+  case 2:
+    fd = log_fd;
+  case 1: {
+    if (NULL == fmt->msg)
+      return fprintf(stderr,
+                     "[Error] %s:%d format string empty, make sure to call %s "
+                     "with an appropriate msg_fmt entry.",
+                     __FILE_NAME__, __LINE__ - 3, __FUNCTION__);
+
+    va_list ap;
+    char msg[strlen(fmt->msg) + PATH_MAX];
+
+    va_start(ap, fmt);
+
+    if (0 == (vsprintf(msg, fmt->msg, ap)))
+      // if (0 == (vsprintf((char*)&msg, fmt->msg, ap)))
+      return fprintf(stderr,
+                     "[Error] %s:%d parsing arguments, make sure to call %s "
+                     "with enough arguments.",
+                     __FILE_NAME__, __LINE__ - 3, __FUNCTION__);
+
+    va_end(ap);
+
+    int n_bytes = fprintf(fd, "%s\n", msg);
+    return n_bytes;
+  }
+  case 0:
+  default:
+    return log_level == 0;
+  }
+}
 
