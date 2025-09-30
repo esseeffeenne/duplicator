@@ -159,13 +159,12 @@ int main(int argc, char *argv[]) {
       if (!event->len && !event->name[0]) {
         continue;
       }
-      size_t event_name_len = strlen(event->name);
 
       if (!(event->mask & (IN_CREATE | IN_DELETE | IN_MOVE))) {
         continue;
       }
 
-      if (PATH_MAX <= opathlen + event_name_len) {
+      if (PATH_MAX <= opathlen + event->len) {
         fprintf(stderr, "link name is too long");
         continue;
       }
@@ -176,42 +175,63 @@ int main(int argc, char *argv[]) {
         exit(errno);
       }
 
-      if ((event->mask & IN_CREATE) &&
-          (0 != (symlink_status = symlink(target, link_name)))) {
-        fprintf(stderr, symlink_error_fmt, target, link_name);
-      } else if ((event->mask & IN_DELETE) &&
-                 (0 != (remove_status = unlink(link_name)))) {
-        fprintf(stderr, remove_error_fmt, link_name);
-      } else if (event->mask & IN_MOVE) {
-        if ((event->mask & IN_MOVED_FROM) &&
-            (NULL == (strncpy(old_link_name, link_name, PATH_MAX))) &&
-            (NULL == memset((char *)&link_name + opathlen + 1, 0, event_name_len))) {
-          unlink(link_name);
-          exit(errno);
-        } else if ((event->mask & IN_MOVED_TO) &&
-                   (0 != (move_status = rename(old_link_name, link_name))) &&
-                   (NULL == memset((void *)old_link_name, 0, sizeof(old_link_name)))) {
-          fprintf(stderr, move_error_fmt, old_link_name, link_name);
-          if (0 != (remove_status = unlink(old_link_name))) {
-            fprintf(stderr, remove_error_fmt, old_link_name);
-            exit(errno);
-          }
-        }
-      }
-      // clear leftovers
-      for (j = ipathlen + 1, k = opathlen + 1;
-           j < strlen(target) || k < strlen(link_name); ++j, ++k) {
-        target[j] = '\0', link_name[k] = '\0';
-      }
-      i += MONITOR_EVENT_SIZE + event->len;
-    }
+      if (event->mask & IN_CREATE) {
+		if (0 != (symlink_status = symlink(target, link_name))) {
+		  log_withlevel(&error_msg_fmt_table[create], target, link_name);
+		} else {
+		  log_withlevel(&success_msg_fmt_table[create], target, link_name);
+		}
+	  }
+	  if (event->mask & IN_DELETE) {
+		if (0 != (remove_status = unlink(link_name))) {
+		  log_withlevel(&error_msg_fmt_table[delete], target, link_name);
+		} else {
+		  log_withlevel(&success_msg_fmt_table[create], target, link_name);
+		}
+	  }
+	  if (event->mask & IN_MOVE) {
+        if (event->mask & IN_MOVED_FROM) {
+		  if ((NULL == (strncpy(old_link_name, link_name, PATH_MAX))) &&
+			  (NULL == memset((char *)&link_name + opathlen + 1, 0, event->len))) {
+			log_withlevel(&generic_msg_fmt, "could not format names");
+		  } else
+			log_withlevel(&generic_msg_fmt, "saved old link name");
+		  if (fstatid = open(target, O_RDONLY), -1 == fstat(fstatid, &st)) {
+			/* stupid hack... */
+			log_withlevel(&generic_msg_fmt, target);
+			log_withlevel(&generic_msg_fmt, "target does not exists");
+			event->mask = IN_MOVED_TO;
+			memset((char*)&link_name + opathlen + 1, 0, PATH_MAX - opathlen - 1);
+			close(fstatid);
+		  }
+		}
+		if (event->mask & IN_MOVED_TO) {
+		  if (0 != unlink(old_link_name)) {
+			log_withlevel(&error_msg_fmt_table[delete], target, link_name);
+		  } else {
+			log_withlevel(&success_msg_fmt_table[delete], target, link_name);
+		  }
+		  if (0 != symlink(target, link_name)) {
+			log_withlevel(&error_msg_fmt_table[create], target, link_name);
+		  } else {
+			log_withlevel(&success_msg_fmt_table[create], target, link_name);
+		  }
+		  memset((void *)old_link_name, 0, sizeof(old_link_name));
+		}
+	  }
+	  // clear leftovers
+	  for (j = ipathlen + 1, k = opathlen + 1; target[j] || target[k]; ++j, ++k) {
+		target[j] = '\0', link_name[k] = '\0';
+	  }
+	  i += MONITOR_EVENT_SIZE + event->len;
+	}
   }
-
   inotify_rm_watch(fd, wd);
   close(fd);
 
   return 0;
 }
+
 
 void usage(void) {
   printf("duplicator %s\n", "Usage: duplicator -l source -t target\n\n");
