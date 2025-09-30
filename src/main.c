@@ -118,7 +118,7 @@ int main(int argc, char *argv[]) {
 
   const size_t ipathlen = strlen(iresolved_path),
                opathlen = strlen(oresolved_path);
-  if ((PATH_MAX - 1 == ipathlen) || (PATH_MAX - 1 == opathlen)) {
+  if ((PATH_MAX - 1 <= ipathlen) || (PATH_MAX - 1 <= opathlen)) {
     perror("paths are too long");
     return ENAMETOOLONG;
   }
